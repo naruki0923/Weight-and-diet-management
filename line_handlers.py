@@ -12,19 +12,40 @@ def handle_text_message(event, api_client: ApiClient):
     user_text = event.message.text.strip()
     reply_token = event.reply_token
     
+    # --- 【追加】リッチメニューからのテキストへの応答 ---
+    if user_text == "体重入力":
+        reply_msg = TextMessage(text="今日の体重を送信してください！")
+        request = ReplyMessageRequest(reply_token=reply_token, messages=[reply_msg])
+        messaging_api.reply_message(request)
+        return
+
+    if user_text == "食事入力":
+        reply_msg = TextMessage(text="食べたものの写真を送信してください！")
+        request = ReplyMessageRequest(reply_token=reply_token, messages=[reply_msg])
+        messaging_api.reply_message(request)
+        return
+
+    # あとで要件定義するため、一旦保留（準備中メッセージを返す）
+    if user_text in ["過去の記録", "筋トレ完了"]:
+        reply_msg = TextMessage(text=f"「{user_text}」機能は現在準備中です")
+        request = ReplyMessageRequest(reply_token=reply_token, messages=[reply_msg])
+        messaging_api.reply_message(request)
+        return
+    # ----------------------------------------------------
+
     # 数値のみ（小数点含む）の場合は「体重」とみなす
     if re.match(r'^\d+(\.\d+)?$', user_text):
         weight = float(user_text)
         spreadsheet.record_weight(weight)
         
-        reply_msg = TextMessage(text=f"体重 {weight}kg を記録しました！順調ですね💪")
+        reply_msg = TextMessage(text=f"体重 {weight}kg を記録しました")
         request = ReplyMessageRequest(reply_token=reply_token, messages=[reply_msg])
         messaging_api.reply_message(request)
         return
 
     # その他のテキスト（データ照会など）の簡易実装
     if "カロリー" in user_text:
-        reply_msg = TextMessage(text="データ照会機能は現在準備中です🙇‍♂️")
+        reply_msg = TextMessage(text="現在準備中です🙇‍♂️")
         request = ReplyMessageRequest(reply_token=reply_token, messages=[reply_msg])
         messaging_api.reply_message(request)
 
