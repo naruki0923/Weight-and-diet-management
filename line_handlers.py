@@ -26,7 +26,7 @@ def handle_text_message(event, api_client: ApiClient):
 
     # ▼ ここが筋トレの呼び出しフロー ▼
     # 2. 筋トレ記録（LINE側から送られてくる文字をそのままキャッチ）
-    if user_text in ["プランク完了", "腹筋完了", "腕立て伏せ完了"]:
+    if user_text in ["プランク完了", "腹筋完了", "腕立て完了"]:
         task_name = user_text.replace("完了", "") 
         
         spreadsheet.update_training_task(task_name)
@@ -91,7 +91,7 @@ def handle_postback(event, api_client: ApiClient):
         
         # 残りのタスクを確認
         status, _ = spreadsheet.get_today_training_status()
-        tasks = ["プランク", "腹筋", "腕立て伏せ"]
+        tasks = ["プランク", "腹筋", "腕立て"]
         unfinished_tasks = [t for t in tasks if status.get(t) != "済"]
         
         if not unfinished_tasks:
@@ -99,7 +99,7 @@ def handle_postback(event, api_client: ApiClient):
             # 7日単位のスタンプカード風テキストを作成
             stamp_text = "🟩" * (streak % 7 if streak % 7 != 0 else 7) + "⬜" * (7 - (streak % 7) if streak % 7 != 0 else 0)
                 
-            reply_msg = TextMessage(text=f"『{task_name}』を記録しました！\n\n本日分すべてコンプリートです！素晴らしい！🔥\n\n【現在 {streak} 日連続達成中！】\n今週のスタンプ: {stamp_text}")
+            reply_msg = TextMessage(text=f"『{task_name}』を記録しました！\n\n本日分すべてコンプリートです！\n\n【現在 {streak} 日連続達成中！】\n今週のスタンプ: {stamp_text}")
         else:
             quick_reply_items = []
             for task in unfinished_tasks:
