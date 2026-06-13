@@ -7,99 +7,126 @@ import ai
 import re
 
 def handle_text_message(event, api_client: ApiClient):
-    """テキストメッセージの処理（体重記録・データ照会など）"""
+    """テキストメッセージの処理"""
     messaging_api = MessagingApi(api_client)
     user_text = event.message.text.strip()
     reply_token = event.reply_token
     
-    # --- 【追加】リッチメニューからのテキストへの応答 ---
     if user_text == "体重入力":
-        reply_msg = TextMessage(text="今日の体重を送信してください！")
+        reply_msg = TextMessage(text="今日の体重を数字のみ（例: 65.5）で送信してください！⚖️")
         request = ReplyMessageRequest(reply_token=reply_token, messages=[reply_msg])
         messaging_api.reply_message(request)
         return
 
     if user_text == "食事入力":
-        reply_msg = TextMessage(text="食べたものの写真を送信してください！")
+        reply_msg = TextMessage(text="食べたものの写真を送信してください！AIがカロリーとPFCを計算します🍽️")
         request = ReplyMessageRequest(reply_token=reply_token, messages=[reply_msg])
         messaging_api.reply_message(request)
         return
 
-    # あとで要件定義するため、一旦保留（準備中メッセージを返す）
-    if user_text in ["過去の記録", "筋トレ完了"]:
-        reply_msg = TextMessage(text=f"「{user_text}」機能は現在準備中です")
+    # ▼ ここが筋トレの呼び出しフロー ▼
+    if user_text == "筋トレ完了":
+        status, _ = spreadsheet.get_today_training_status()
+        tasks = ["プランク", "腹筋", "腕立て伏せ"]
+        unfinished_tasks = [t for t in tasks if status.get(t) != "済"]
+        
+        # 全て終わっている場合
+        if not unfinished_tasks:
+            streak = spreadsheet.get_training_streak()
+            reply_msg = TextMessage(text=f"今日の筋トレはすでに終了しています！🎉\n現在【 {streak}日 】連続達成中！明日も頑張りましょう！")
+            request = ReplyMessageRequest(reply_token=reply_token, messages=[reply_msg])
+            messaging_api.reply_message(request)
+            return
+            
+        # まだ終わっていない種目がある場合、ボタンを作成
+        quick_reply_items = []
+        for task in unfinished_tasks:
+            quick_reply_items.append(
+                QuickReplyItem(
+                    action=PostbackAction(label=f"{task}完了", data=f"action=training_done&task={task}")
+                )
+            )
+            
+        quick_reply = QuickReply(items=quick_reply_items)
+        reply_msg = TextMessage(text="今日の筋トレタスクです！終わった種目をタップしてください💪", quick_reply=quick_reply)
         request = ReplyMessageRequest(reply_token=reply_token, messages=[reply_msg])
         messaging_api.reply_message(request)
         return
-    # ----------------------------------------------------
 
-    # 数値のみ（小数点含む）の場合は「体重」とみなす
+    if user_text == "過去の記録":
+        reply_msg = TextMessage(text=f"「{user_text}」機能は現在準備中です。アップデートをお楽しみに！🙇‍♂️")
+        request = ReplyMessageRequest(reply_token=reply_token, messages=[reply_msg])
+        messaging_api.reply_message(request)
+        return
+
     if re.match(r'^\d+(\.\d+)?$', user_text):
         weight = float(user_text)
         spreadsheet.record_weight(weight)
-        
-        reply_msg = TextMessage(text=f"体重 {weight}kg を記録しました")
+        reply_msg = TextMessage(text=f"体重 {weight}kg を記録しました！順調ですね💪")
         request = ReplyMessageRequest(reply_token=reply_token, messages=[reply_msg])
         messaging_api.reply_message(request)
         return
 
-    # その他のテキスト（データ照会など）の簡易実装
-    if "カロリー" in user_text:
-        reply_msg = TextMessage(text="現在準備中です🙇‍♂️")
-        request = ReplyMessageRequest(reply_token=reply_token, messages=[reply_msg])
-        messaging_api.reply_message(request)
-
 def handle_image_message(event, api_client: ApiClient):
-    """画像メッセージ受信時：クイックリプライで意図を確認する"""
+    """画像メッセージ受信時の処理（変更なし）"""
     messaging_api = MessagingApi(api_client)
     reply_token = event.reply_token
     message_id = event.message.id
     
-    # クイックリプライのボタンを作成
-    btn_record = QuickReplyItem(
-        action=PostbackAction(label="🍽️ 食事を記録", data=f"action=meal&msg_id={message_id}")
-    )
-    btn_memo = QuickReplyItem(
-        action=PostbackAction(label="📝 単なるメモ", data="action=memo")
-    )
-    btn_cancel = QuickReplyItem(
-        action=PostbackAction(label="❌ キャンセル", data="action=cancel")
-    )
+    btn_record = QuickReplyItem(action=PostbackAction(label="🍽️ 食事を記録", data=f"action=meal&msg_id={message_id}"))
+    btn_memo = QuickReplyItem(action=PostbackAction(label="📝 単なるメモ", data="action=memo"))
+    btn_cancel = QuickReplyItem(action=PostbackAction(label="❌ キャンセル", data="action=cancel"))
     
     quick_reply = QuickReply(items=[btn_record, btn_memo, btn_cancel])
     reply_msg = TextMessage(text="この画像は何の記録ですか？", quick_reply=quick_reply)
-    
     request = ReplyMessageRequest(reply_token=reply_token, messages=[reply_msg])
     messaging_api.reply_message(request)
 
 def handle_postback(event, api_client: ApiClient):
-    """ボタン（Postback）が押された時の処理"""
+    """ボタンが押された時の処理"""
     messaging_api = MessagingApi(api_client)
     blob_api = MessagingApiBlob(api_client)
     reply_token = event.reply_token
     postback_data = event.postback.data
     
-    # リッチメニューからの筋トレ記録
-    if postback_data == "action=training_done":
-        spreadsheet.record_training()
-        reply_msg = TextMessage(text="ナイスバルク！💪 筋トレを記録しました！")
+    # ▼ 筋トレの個別ボタンが押された時の処理 ▼
+    if postback_data.startswith("action=training_done"):
+        params = dict(item.split("=") for item in postback_data.split("&"))
+        task_name = params.get("task")
+        
+        # スプレッドシートに記録
+        spreadsheet.update_training_task(task_name)
+        
+        # 残りのタスクを確認
+        status, _ = spreadsheet.get_today_training_status()
+        tasks = ["プランク", "腹筋", "腕立て伏せ"]
+        unfinished_tasks = [t for t in tasks if status.get(t) != "済"]
+        
+        if not unfinished_tasks:
+            streak = spreadsheet.get_training_streak()
+            # 7日単位のスタンプカード風テキストを作成
+            stamp_text = "🟩" * (streak % 7 if streak % 7 != 0 else 7) + "⬜" * (7 - (streak % 7) if streak % 7 != 0 else 0)
+                
+            reply_msg = TextMessage(text=f"『{task_name}』を記録しました！\n\n本日分すべてコンプリートです！素晴らしい！🔥\n\n【現在 {streak} 日連続達成中！】\n今週のスタンプ: {stamp_text}")
+        else:
+            quick_reply_items = []
+            for task in unfinished_tasks:
+                quick_reply_items.append(
+                    QuickReplyItem(action=PostbackAction(label=f"{task}完了", data=f"action=training_done&task={task}"))
+                )
+            quick_reply = QuickReply(items=quick_reply_items)
+            reply_msg = TextMessage(text=f"『{task_name}』を記録しました！ナイス！👍\n残りのタスクも頑張りましょう！", quick_reply=quick_reply)
+            
         request = ReplyMessageRequest(reply_token=reply_token, messages=[reply_msg])
         messaging_api.reply_message(request)
         return
 
-    # クイックリプライからの食事記録
+    # （食事画像の処理などは元のまま）
     if postback_data.startswith("action=meal"):
-        # URLパラメータのように渡したメッセージIDを取り出す
         params = dict(item.split("=") for item in postback_data.split("&"))
         msg_id = params.get("msg_id")
-        
-        # 処理中メッセージを返す（オプション・LINE APIの仕様上非同期処理が必要な場合あり）
-        # ここでは同期処理として簡略化して記述します
-        
-        # 1. LINEサーバーから画像データを取得
         image_bytes = blob_api.get_message_content(msg_id)
         
-        # 2. Geminiで解析
         try:
             nutrition_data = ai.analyze_meal_image(image_bytes)
             meal_name = nutrition_data.get("meal_name", "不明な食事")
@@ -107,20 +134,15 @@ def handle_postback(event, api_client: ApiClient):
             protein = nutrition_data.get("protein", 0)
             fat = nutrition_data.get("fat", 0)
             carbs = nutrition_data.get("carbs", 0)
-            
-            # 新しく追加されたデータを受け取る
             data_source = nutrition_data.get("data_source", "画像からの概算")
             memo = nutrition_data.get("memo", "特になし")
             
-            # 3. スプレッドシートへ記録（ここはそのまま）
             spreadsheet.record_meal_data(meal_name, calories, protein, fat, carbs)
             
-            # 4. アドバイスの生成
             target_totals = spreadsheet.get_target_nutrition()
             today_totals = {"calories": calories, "protein": protein, "fat": fat, "carbs": carbs}
             advice = ai.generate_advice(today_totals, target_totals)
             
-            # 5. 結果の返信（いただいたプロンプトのフォーマットをここで再現！）
             reply_text = (
                 f"🍽️ メニュー名: {meal_name}\n"
                 f"🔍 データソース: {data_source}\n\n"
@@ -132,12 +154,7 @@ def handle_postback(event, api_client: ApiClient):
                 f"💡 解析メモ:\n{memo}\n\n"
                 f"🏋️‍♂️ AIアドバイス:\n{advice}"
             )
-            
         except Exception as e:
-            # 🌟 ここでエラーの詳細をターミナルに表示させる
-            import traceback
-            traceback.print_exc()
-            # 🌟 LINEにもエラーが出たことを知らせる
             reply_text = f"解析エラー: {str(e)}"
         
         reply_msg = TextMessage(text=reply_text)
