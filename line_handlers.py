@@ -25,30 +25,22 @@ def handle_text_message(event, api_client: ApiClient):
         return
 
     # ▼ ここが筋トレの呼び出しフロー ▼
-    if user_text == "筋トレ完了":
+    # 2. 筋トレ記録（LINE側から送られてくる文字をそのままキャッチ）
+    if user_text in ["プランク完了", "腹筋完了", "腕立て伏せ完了"]:
+        task_name = user_text.replace("完了", "") 
+        
+        spreadsheet.update_training_task(task_name)
         status, _ = spreadsheet.get_today_training_status()
         tasks = ["プランク", "腹筋", "腕立て伏せ"]
         unfinished_tasks = [t for t in tasks if status.get(t) != "済"]
         
-        # 全て終わっている場合
         if not unfinished_tasks:
             streak = spreadsheet.get_training_streak()
-            reply_msg = TextMessage(text=f"今日の筋トレはすでに終了しています！🎉\n現在【 {streak}日 】連続達成中！明日も頑張りましょう！")
-            request = ReplyMessageRequest(reply_token=reply_token, messages=[reply_msg])
-            messaging_api.reply_message(request)
-            return
+            reply_msg = TextMessage(text=f"『{task_name}』を記録しました！\n現在{streak}日連続達成中！】")
+        else:
+            remaining = "、".join(unfinished_tasks)
+            reply_msg = TextMessage(text=f"『{task_name}』を記録しました！\n残りのタスクは【 {remaining} 】です！")
             
-        # まだ終わっていない種目がある場合、ボタンを作成
-        quick_reply_items = []
-        for task in unfinished_tasks:
-            quick_reply_items.append(
-                QuickReplyItem(
-                    action=PostbackAction(label=f"{task}完了", data=f"action=training_done&task={task}")
-                )
-            )
-            
-        quick_reply = QuickReply(items=quick_reply_items)
-        reply_msg = TextMessage(text="今日の筋トレタスクです！終わった種目をタップしてください💪", quick_reply=quick_reply)
         request = ReplyMessageRequest(reply_token=reply_token, messages=[reply_msg])
         messaging_api.reply_message(request)
         return
