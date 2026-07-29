@@ -4,11 +4,21 @@ from linebot.v3.messaging import (
 )
 import spreadsheet
 import summary
+import tdee
 import ai
 import re
 
 # 文面の組み立ては summary.py に集約（ショートカット用APIと共通）
 build_daily_summary = summary.build_daily_summary
+
+# 「身長 168」のように送って設定シートを更新できる項目（体重は数字だけ送って記録する）
+PROFILE_COMMANDS = {
+    "性別": ("性別", ""),
+    "年齢": ("年齢", "歳"),
+    "身長": ("身長", "cm"),
+    "目標区分": ("目標区分", ""),
+    "カロリー調整": ("カロリー調整", "kcal"),
+}
 
 def handle_text_message(event, api_client: ApiClient):
     """テキストメッセージの処理"""
@@ -22,6 +32,59 @@ def handle_text_message(event, api_client: ApiClient):
         calories = int(target_match.group(1))
         spreadsheet.set_target_calories(calories)
         reply_msg = TextMessage(text=f"目標カロリーを {calories} kcal に設定しました🎯\n\n{build_daily_summary()}")
+        request = ReplyMessageRequest(reply_token=reply_token, messages=[reply_msg])
+        messaging_api.reply_message(request)
+        return
+
+    # TDEEの計算結果を表示
+    if user_text in ["TDEE", "tdee", "消費カロリー", "代謝"]:
+        reply_msg = TextMessage(text=summary.build_tdee_summary())
+        request = ReplyMessageRequest(reply_token=reply_token, messages=[reply_msg])
+        messaging_api.reply_message(request)
+        return
+
+    # 推奨摂取カロリーを目標カロリーに反映
+    if user_text in ["TDEEを目標に", "TDEE反映", "目標をTDEEに"]:
+        try:
+            status = summary.apply_tdee_as_target()
+            text = (
+                f"目標カロリーを {status['recommended_calories']:.0f} kcal に設定しました🎯\n"
+                f"（TDEE {status['tdee']} kcal / 目標「{status['goal']}」）\n\n"
+                f"{build_daily_summary()}"
+            )
+        except tdee.MissingProfileError:
+            text = summary.build_tdee_summary()
+        reply_msg = TextMessage(text=text)
+        request = ReplyMessageRequest(reply_token=reply_token, messages=[reply_msg])
+        messaging_api.reply_message(request)
+        return
+
+    # 活動レベルの一覧を表示（値なしで送られた場合）
+    if user_text == "活動レベル":
+        reply_msg = TextMessage(text=tdee.build_activity_level_guide())
+        request = ReplyMessageRequest(reply_token=reply_token, messages=[reply_msg])
+        messaging_api.reply_message(request)
+        return
+
+    # 活動レベルの設定（例:「活動レベル 2」）→ 係数が変わるのでカロリーも再計算
+    activity_match = re.match(r'^活動レベル\s*(.+)$', user_text)
+    if activity_match:
+        level = tdee.normalize_activity_level(activity_match.group(1))
+        spreadsheet.set_setting("活動レベル", level)
+        reply_msg = TextMessage(
+            text=f"活動レベルを {level}（{tdee.activity_label(level)}）に設定しました🏃\n\n{summary.build_tdee_summary()}"
+        )
+        request = ReplyMessageRequest(reply_token=reply_token, messages=[reply_msg])
+        messaging_api.reply_message(request)
+        return
+
+    # 身体データの設定（例:「身長 168」「年齢 20」「目標区分 増量」）
+    profile_match = re.match(r'^(性別|年齢|身長|目標区分|カロリー調整)\s*(.+)$', user_text)
+    if profile_match:
+        key, unit = PROFILE_COMMANDS[profile_match.group(1)]
+        value = profile_match.group(2).strip()
+        spreadsheet.set_setting(key, value, unit)
+        reply_msg = TextMessage(text=f"{key}を「{value}」に設定しました✅\n\n{summary.build_tdee_summary()}")
         request = ReplyMessageRequest(reply_token=reply_token, messages=[reply_msg])
         messaging_api.reply_message(request)
         return
@@ -73,8 +136,9 @@ def handle_text_message(event, api_client: ApiClient):
 
     if re.match(r'^\d+(\.\d+)?$', user_text):
         weight = float(user_text)
-        spreadsheet.record_weight(weight)
-        reply_msg = TextMessage(text=f"体重 {weight}kg を記録しました！順調ですね💪")
+        # 体重が変わればBMR/TDEEも変わるので、記録のたびに目標カロリーまで更新する
+        result = summary.record_weight_and_update(weight)
+        reply_msg = TextMessage(text=result["message"])
         request = ReplyMessageRequest(reply_token=reply_token, messages=[reply_msg])
         messaging_api.reply_message(request)
         return

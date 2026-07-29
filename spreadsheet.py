@@ -28,22 +28,39 @@ def _to_float(value) -> float:
     except (TypeError, ValueError):
         return 0.0
 
-def get_target_nutrition():
-    """設定シートから目標PFCとカロリーを取得する"""
+def get_settings():
+    """設定シートを A列=項目名 -> B列=設定値 の辞書として読む"""
     sheet = get_sheet_client().worksheet("設定シート")
 
-    # B1（設定値）のヘッダーが空なので get_all_records だと値を拾えない。
+    # シートによってヘッダーの有無がバラバラなので get_all_records は使わず、
     # A列=項目名 / B列=設定値 という位置で読む。
-    targets = {}
+    settings = {}
     for row in sheet.get_all_values():
         if len(row) < 2:
             continue
         key = str(row[0]).strip()
         if not key or key == "項目名":
             continue
-        targets[key] = row[1]
+        settings[key] = row[1]
 
-    return targets
+    return settings
+
+def get_target_nutrition():
+    """設定シートから目標PFCとカロリーを取得する"""
+    return get_settings()
+
+def set_setting(key: str, value, unit: str = ""):
+    """設定シートの1項目を更新する（項目名の完全一致。行がなければ追加）"""
+    sheet = get_sheet_client().worksheet("設定シート")
+
+    for i, row in enumerate(sheet.get_all_values()):
+        if row and str(row[0]).strip() == key:
+            sheet.update_cell(i + 1, 2, value)
+            if unit:
+                sheet.update_cell(i + 1, 3, unit)
+            return
+
+    sheet.append_row([key, value, unit])
 
 def record_meal_data(meal_name: str, calories: int, protein: int, fat: int, carbs: int):
     """食事記録シートにデータを追加する"""
@@ -76,21 +93,26 @@ def get_today_meal_totals():
 
 def get_target_calories() -> float:
     """設定シートから目標カロリーを取得する（未設定なら0）"""
-    for key, val in get_target_nutrition().items():
-        if "カロリー" in str(key):
-            return _to_float(val)
+    settings = get_settings()
+
+    # 「カロリー調整」も部分一致してしまうので、完全一致を先に見る
+    for key in (TARGET_CALORIE_KEY, "カロリー"):
+        if key in settings:
+            return _to_float(settings[key])
+
     return 0.0
 
 def set_target_calories(calories: int):
     """設定シートの目標カロリーを更新する（行がなければ追加）"""
     sheet = get_sheet_client().worksheet("設定シート")
 
+    # 「カロリー調整」を書き換えないよう、こちらも完全一致で探す
     for i, row in enumerate(sheet.get_all_values()):
-        if row and "カロリー" in str(row[0]):
+        if row and str(row[0]).strip() in (TARGET_CALORIE_KEY, "カロリー"):
             sheet.update_cell(i + 1, 2, calories)
             return
 
-    sheet.append_row([TARGET_CALORIE_KEY, calories])
+    sheet.append_row([TARGET_CALORIE_KEY, calories, "kcal"])
 
 def record_weight(weight: float):
     """体重記録シートにデータを追加する"""
@@ -99,6 +121,43 @@ def record_weight(weight: float):
     
     row_data = [now_str, weight]
     sheet.append_row(row_data)
+
+def get_latest_weight() -> float:
+    """体重記録シートの最新の体重を返す（1件もなければ0）"""
+    sheet = get_sheet_client().worksheet("体重記録シート")
+
+    # このシートも [日時, 体重] で1行目からデータ。後ろから見て最初に数値が入っている行を採用する。
+    for row in reversed(sheet.get_all_values()):
+        if len(row) < 2:
+            continue
+        weight = _to_float(row[1])
+        if weight > 0:
+            return weight
+
+    return 0.0
+
+# TDEEの計算に使う設定シートの項目名
+BODY_PROFILE_KEYS = {
+    "sex": "性別",
+    "age": "年齢",
+    "height": "身長",
+    "weight": "体重",
+    "activity_level": "活動レベル",
+    "goal": "目標区分",
+    "adjustment": "カロリー調整",
+}
+
+def get_body_profile() -> dict:
+    """TDEE計算に使う身体データを設定シート＋体重記録シートから集める"""
+    settings = get_settings()
+    profile = {key: settings.get(name, "") for key, name in BODY_PROFILE_KEYS.items()}
+
+    # 体重は記録シートの最新値を優先し、記録がなければ設定シートの「体重」を使う
+    latest_weight = get_latest_weight()
+    if latest_weight > 0:
+        profile["weight"] = latest_weight
+
+    return profile
 
 def record_training():
     """筋トレ記録シートに完了フラグを追加する"""

@@ -6,8 +6,8 @@ from linebot.v3.webhooks import MessageEvent, TextMessageContent, ImageMessageCo
 
 from config import LINE_CHANNEL_ACCESS_TOKEN, LINE_CHANNEL_SECRET, API_TOKEN
 import line_handlers
-import spreadsheet
 import summary
+import tdee
 
 # FastAPIのアプリケーション初期化
 app = FastAPI()
@@ -80,7 +80,7 @@ async def get_today(x_api_token: str = Header(None)):
 
 @app.post("/weight")
 async def post_weight(request: Request, x_api_token: str = Header(None)):
-    """体重を記録する（ヘルスケア連携用。{"weight": 55.2} を送る）"""
+    """体重を記録し、その体重でTDEEと目標カロリーを再計算する（ヘルスケア連携用。{"weight": 55.2} を送る）"""
     verify_token(x_api_token)
 
     body = await request.json()
@@ -89,6 +89,26 @@ async def post_weight(request: Request, x_api_token: str = Header(None)):
     except (KeyError, TypeError, ValueError):
         raise HTTPException(status_code=400, detail="weight must be a number")
 
-    spreadsheet.record_weight(weight)
+    return summary.record_weight_and_update(weight)
 
-    return {"message": f"体重 {weight}kg を記録しました", "weight": weight}
+@app.get("/tdee")
+async def get_tdee(x_api_token: str = Header(None)):
+    """今の身体データからBMR / TDEE / 推奨摂取カロリーを返す"""
+    verify_token(x_api_token)
+
+    try:
+        return {"message": summary.build_tdee_summary(), **summary.get_tdee_status()}
+    except tdee.MissingProfileError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/tdee/apply")
+async def post_tdee_apply(x_api_token: str = Header(None)):
+    """推奨摂取カロリーを目標カロリーとして設定する"""
+    verify_token(x_api_token)
+
+    try:
+        status = summary.apply_tdee_as_target()
+    except tdee.MissingProfileError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {"message": f"目標カロリーを {status['recommended_calories']:.0f} kcal に設定しました", **status}
