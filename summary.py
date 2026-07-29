@@ -2,9 +2,12 @@ import spreadsheet
 import tdee
 import ai
 
-def analyze_and_record(image_bytes: bytes) -> dict:
-    """食事画像を解析してシートに記録し、解析結果を返す"""
-    nutrition = ai.analyze_meal_image(image_bytes)
+def analyze_and_record(image_bytes: bytes, note: str = "") -> dict:
+    """食事画像を解析してシートに記録し、解析結果を返す。
+
+    note は「大盛り」「半分残した」など、写真から読み取れない補足。
+    """
+    nutrition = ai.analyze_meal_image(image_bytes, note)
 
     meal = {
         "meal_name": nutrition.get("meal_name", "不明な食事"),

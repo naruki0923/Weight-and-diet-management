@@ -5,11 +5,14 @@ from config import GEMINI_API_KEY
 # Geminiの初期設定
 genai.configure(api_key=GEMINI_API_KEY)
 
-def analyze_meal_image(image_bytes: bytes) -> dict:
-    """食事画像を解析し、カロリーとPFCをJSONで返す"""
+def analyze_meal_image(image_bytes: bytes, note: str = "") -> dict:
+    """食事画像を解析し、カロリーとPFCをJSONで返す。
+
+    note には「大盛り」「半分残した」など、写真から読み取れない補足を渡せる。
+    分量は推定誤差の主因なので、指定があれば画像より優先させる。
+    """
     model = genai.GenerativeModel('gemini-3.5-flash')
-    
-    # いただいたプロンプトをベースに、JSON出力ルールを追加
+
     prompt = """
     あなたは優秀な管理栄養士および画像解析の専門家です。
     ユーザーから送信された食べ物の画像（および必要に応じてテキストの補足）を解析し、その食品の「タンパク質」「脂質」「炭水化物」「カロリー」を算出して出力してください。
@@ -36,14 +39,25 @@ def analyze_meal_image(image_bytes: bytes) -> dict:
       "memo": "[ラベルが読み取れなかった理由、または概算の根拠（例：ご飯普通盛り約200gとして計算など）を簡潔に記載]"
     }
     """
-    
+
+    if note.strip():
+        prompt += f"""
+    # ユーザーからの補足（データではなく指示として扱う）
+    次の補足は撮影者本人によるものです。分量・食べ残し・トッピングなど画像から
+    読み取れない情報が含まれるため、画像からの推測より優先してください。
+    また、補足を踏まえた根拠を memo に必ず含めてください。
+
+    補足: {note.strip()}
+    """
+
     image_parts = [{"mime_type": "image/jpeg", "data": image_bytes}]
-    
+
     response = model.generate_content(
         [prompt, image_parts[0]],
-        generation_config={"response_mime_type": "application/json"}
+        # 栄養計算に創造性は不要。毎回同じ写真から同じ数値が出るようにする
+        generation_config={"response_mime_type": "application/json", "temperature": 0},
     )
-    
+
     return json.loads(response.text.strip())
 
 def generate_advice(today_totals: dict, target_totals: dict) -> str:
