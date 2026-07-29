@@ -1,4 +1,5 @@
 import spreadsheet
+import tdee
 import ai
 
 def analyze_and_record(image_bytes: bytes) -> dict:
@@ -54,6 +55,87 @@ def build_daily_summary() -> str:
         lines.append("\n🎯 目標カロリー未設定")
 
     return "\n".join(lines)
+
+def get_tdee_status(weight: float = None) -> dict:
+    """身体データからBMR/TDEE/推奨摂取カロリーを計算し、現在の目標も添えて返す。
+
+    weight を渡すとシートの記録より優先する（記録直後に読み直さずに済むように）。
+    """
+    profile = spreadsheet.get_body_profile()
+    if weight:
+        profile["weight"] = weight
+
+    result = tdee.calculate(profile)
+    result["current_target"] = spreadsheet.get_target_calories()
+    return result
+
+def build_tdee_summary() -> str:
+    """TDEEの計算結果をLINEに返す文面にする。データ不足なら設定方法を案内する"""
+    try:
+        status = get_tdee_status()
+    except tdee.MissingProfileError as e:
+        examples = {"年齢": "年齢 20", "身長": "身長 168", "体重": "55.5"}
+        lines = ["⚠️ TDEEの計算に必要なデータが足りません。", ""]
+        for name in e.missing:
+            lines.append(f"・{name} →「{examples[name]}」と送信")
+        lines.append("\n※体重は数字だけ送ると記録されます")
+        return "\n".join(lines)
+
+    sign = "+" if status["adjustment"] >= 0 else "−"
+    lines = [
+        "🔥 TDEE（1日の総消費カロリー）",
+        f"⚡ {status['tdee']} kcal",
+        "",
+        f"📐 内訳: 基礎代謝 {status['bmr']} kcal × {status['activity_factor']}",
+        f"🏃 活動レベル{status['activity_level']}: {status['activity_label']}",
+        f"📊 {status['sex']} / {status['age']:.0f}歳 / {status['height']:.0f}cm / {status['weight']:.1f}kg",
+        "",
+        f"🎯 目標「{status['goal']}」→ 推奨 {status['recommended_calories']:.0f} kcal"
+        f"（TDEE {sign}{abs(status['adjustment']):.0f}）",
+    ]
+
+    if status["current_target"] > 0:
+        lines.append(f"📝 現在の設定は {status['current_target']:.0f} kcal")
+    lines.append("\n「TDEEを目標に」で推奨値を目標カロリーに反映できます")
+
+    return "\n".join(lines)
+
+def apply_tdee_as_target(weight: float = None) -> dict:
+    """推奨摂取カロリーを目標カロリーとして設定シートに書き込む"""
+    status = get_tdee_status(weight)
+    spreadsheet.set_target_calories(int(status["recommended_calories"]))
+    status["current_target"] = status["recommended_calories"]
+    return status
+
+def record_weight_and_update(weight: float) -> dict:
+    """体重を記録し、その体重でTDEEを計算し直して目標カロリーまで更新する。
+
+    体重は測るたびに送られてくる前提なので、記録のたびに自動で再計算する。
+    年齢・身長がまだ設定されていない場合は記録だけして計算はスキップする。
+    """
+    spreadsheet.record_weight(weight)
+
+    result = {"weight": weight, "recalculated": False}
+    try:
+        status = apply_tdee_as_target(weight)
+    except tdee.MissingProfileError as e:
+        result["message"] = (
+            f"体重 {weight}kg を記録しました！順調ですね💪\n\n"
+            f"⚠️ {'・'.join(e.missing)}が未設定のため、TDEEは計算できませんでした。\n"
+            f"「年齢 20」「身長 168」のように送ると設定できます"
+        )
+        result["missing"] = e.missing
+        return result
+
+    result["recalculated"] = True
+    result["status"] = status
+    result["message"] = (
+        f"体重 {weight}kg を記録しました！順調ですね💪\n\n"
+        f"🔄 この体重でカロリーを再計算しました\n"
+        f"🔥 TDEE: {status['tdee']} kcal\n"
+        f"🎯 目標カロリー: {status['recommended_calories']:.0f} kcal（目標「{status['goal']}」）"
+    )
+    return result
 
 def build_meal_result(meal: dict) -> str:
     """1食ぶんの解析結果＋今日の合計を、通知1枚に収まる文面にする"""
