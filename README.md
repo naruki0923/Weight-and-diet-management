@@ -47,6 +47,18 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 以降は `git push` するたびに自動デプロイされる。
 `vercel.json` が全リクエストを `main.py` の FastAPI アプリに流している。
 
+### デプロイが Blocked になるとき
+
+Vercel はコミットの author email が GitHub アカウントに紐づいていないとデプロイを拒否する。
+`git config user.email` が未設定だと `ユーザー名@ホスト名.local` が使われて弾かれるので、
+GitHub の noreply アドレスを設定しておく。
+
+```bash
+git config --global user.email "<ユーザーID>+<ログイン名>@users.noreply.github.com"
+```
+
+ID は `gh api user --jq .id` で確認できる。
+
 動作確認:
 
 ```bash
