@@ -5,6 +5,21 @@ from config import GEMINI_API_KEY
 # Geminiの初期設定
 genai.configure(api_key=GEMINI_API_KEY)
 
+# 解析結果の構造。これを渡すとGemini側が形式を保証してくれる
+MEAL_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "meal_name":   {"type": "string"},
+        "data_source": {"type": "string"},
+        "calories":    {"type": "number"},
+        "protein":     {"type": "number"},
+        "fat":         {"type": "number"},
+        "carbs":       {"type": "number"},
+        "memo":        {"type": "string"},
+    },
+    "required": ["meal_name", "data_source", "calories", "protein", "fat", "carbs", "memo"],
+}
+
 def analyze_meal_image(image_bytes: bytes, note: str = "") -> dict:
     """食事画像を解析し、カロリーとPFCをJSONで返す。
 
@@ -54,8 +69,14 @@ def analyze_meal_image(image_bytes: bytes, note: str = "") -> dict:
 
     response = model.generate_content(
         [prompt, image_parts[0]],
-        # 栄養計算に創造性は不要。毎回同じ写真から同じ数値が出るようにする
-        generation_config={"response_mime_type": "application/json", "temperature": 0},
+        generation_config={
+            "response_mime_type": "application/json",
+            # プロンプトで形式を頼むだけだと memo に生の引用符が混ざって
+            # JSONが壊れることがあるため、スキーマで構造を強制する
+            "response_schema": MEAL_SCHEMA,
+            # 栄養計算に創造性は不要。同じ写真から同じ数値が出るようにする
+            "temperature": 0,
+        },
     )
 
     return json.loads(response.text.strip())
