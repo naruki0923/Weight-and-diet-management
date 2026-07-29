@@ -3,16 +3,17 @@
 食事の写真から Gemini がカロリーと PFC を算出し、Google スプレッドシートに記録する。
 今日の合計と「目標まであと何 kcal か」を返す。
 
-入力は **iOS ショートカット**（写真 → 共有 → タップ）、振り返りは **スプレッドシートのグラフ**（PC）を想定。
-LINE Bot も従来どおり使える。
+入力は **iOS ショートカット**（写真 → 共有 → タップ）、振り返りは **スプレッドシートのグラフ**（PC）。
+設定の変更はスプレッドシートの「設定シート」を直接編集する。
+
+LINE Bot は使わなくなったため削除した（コミット履歴には残っているので必要なら戻せる）。
 
 ## 構成
 
 | ファイル | 役割 |
 |---|---|
-| `main.py` | FastAPI。LINE Webhook と、ショートカット用の API |
-| `summary.py` | 解析 → 記録 → 文面組み立て（インターフェース非依存） |
-| `line_handlers.py` | LINE 用のメッセージ処理 |
+| `main.py` | FastAPI。ショートカット用の API |
+| `summary.py` | 解析 → 記録 → 文面組み立て |
 | `spreadsheet.py` | Google スプレッドシートの読み書き |
 | `tdee.py` | BMR / TDEE / 推奨摂取カロリーの計算（シート非依存の純粋な計算） |
 | `ai.py` | Gemini による画像解析とアドバイス生成 |
@@ -21,11 +22,9 @@ LINE Bot も従来どおり使える。
 ## 環境変数（`.env`）
 
 ```
-LINE_CHANNEL_ACCESS_TOKEN=...
-LINE_CHANNEL_SECRET=...
 GEMINI_API_KEY=...
 SPREADSHEET_URL_OR_KEY=1kWV2tOxksTpV_QeaePrDcwKLLIdpg8m-6n5d0kz5JU4
-GCP_SERVICE_ACCOUNT_JSON=service_account.json
+GCP_SERVICE_ACCOUNT_JSON=credentials.json
 API_TOKEN=<自分で決めた長い文字列>
 ```
 
@@ -41,10 +40,9 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 ## デプロイ（Vercel）
 
 1. このリポジトリを Vercel にインポートする（Framework Preset は `Other`）
-2. Settings → Environment Variables に上記をすべて登録する
-   - `GCP_SERVICE_ACCOUNT_JSON` には `service_account.json` の**中身を丸ごと**貼る
+2. Settings → Environment Variables に上記 4 つを登録する
+   - `GCP_SERVICE_ACCOUNT_JSON` には `credentials.json` の**中身を丸ごと**貼る
 3. デプロイすると `https://<プロジェクト名>.vercel.app` が払い出される
-4. LINE Developers の Webhook URL を `https://<...>.vercel.app/callback` に変更する
 
 以降は `git push` するたびに自動デプロイされる。
 `vercel.json` が全リクエストを `main.py` の FastAPI アプリに流している。
@@ -186,5 +184,6 @@ TDEE 用に設定シートで使う項目名: `性別` / `年齢` / `身長` / `
 
 ## 既知の問題
 
-- 筋トレ機能は保留中。`line_handlers.py` が受け取る「腕立て」と
-  `spreadsheet.py` の `col_map` の「腕立て伏せ」が一致せず、腕立てだけ記録されない。
+- 筋トレ機能は保留中。記録用の関数は `spreadsheet.py` に残っているが、
+  呼び出し口（LINE）を削除したため現在どこからも使われていない。
+- `google-generativeai` はサポート終了済み。いずれ `google-genai` へ移行が必要。

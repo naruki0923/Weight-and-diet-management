@@ -7,7 +7,7 @@ genai.configure(api_key=GEMINI_API_KEY)
 
 def analyze_meal_image(image_bytes: bytes) -> dict:
     """食事画像を解析し、カロリーとPFCをJSONで返す"""
-    model = genai.GenerativeModel('gemini-2.5-flash')
+    model = genai.GenerativeModel('gemini-3.5-flash')
     
     # いただいたプロンプトをベースに、JSON出力ルールを追加
     prompt = """
@@ -48,7 +48,7 @@ def analyze_meal_image(image_bytes: bytes) -> dict:
 
 def generate_advice(today_totals: dict, target_totals: dict) -> str:
     """現在の栄養摂取状況に基づき、AIがアドバイスを生成する"""
-    model = genai.GenerativeModel('gemini-2.5-flash')
+    model = genai.GenerativeModel('gemini-3.5-flash')
     
     prompt = f"""
     あなたは優秀なパーソナル栄養トレーナーです。

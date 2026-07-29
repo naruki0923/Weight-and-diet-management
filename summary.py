@@ -70,15 +70,15 @@ def get_tdee_status(weight: float = None) -> dict:
     return result
 
 def build_tdee_summary() -> str:
-    """TDEEの計算結果をLINEに返す文面にする。データ不足なら設定方法を案内する"""
+    """TDEEの計算結果を通知用の文面にする。データ不足なら設定方法を案内する"""
     try:
         status = get_tdee_status()
     except tdee.MissingProfileError as e:
-        examples = {"年齢": "年齢 20", "身長": "身長 168", "体重": "55.5"}
-        lines = ["⚠️ TDEEの計算に必要なデータが足りません。", ""]
+        lines = ["⚠️ TDEEの計算に必要なデータが足りません。", "",
+                 "スプレッドシートの「設定シート」に次の項目を追加してください:"]
         for name in e.missing:
-            lines.append(f"・{name} →「{examples[name]}」と送信")
-        lines.append("\n※体重は数字だけ送ると記録されます")
+            lines.append(f"・{name}")
+        lines.append("\n※体重はショートカットから送れば自動で記録されます")
         return "\n".join(lines)
 
     sign = "+" if status["adjustment"] >= 0 else "−"
@@ -96,7 +96,6 @@ def build_tdee_summary() -> str:
 
     if status["current_target"] > 0:
         lines.append(f"📝 現在の設定は {status['current_target']:.0f} kcal")
-    lines.append("\n「TDEEを目標に」で推奨値を目標カロリーに反映できます")
 
     return "\n".join(lines)
 
