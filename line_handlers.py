@@ -3,15 +3,35 @@ from linebot.v3.messaging import (
     QuickReply, QuickReplyItem, PostbackAction
 )
 import spreadsheet
+import summary
 import ai
 import re
+
+# 文面の組み立ては summary.py に集約（ショートカット用APIと共通）
+build_daily_summary = summary.build_daily_summary
 
 def handle_text_message(event, api_client: ApiClient):
     """テキストメッセージの処理"""
     messaging_api = MessagingApi(api_client)
     user_text = event.message.text.strip()
     reply_token = event.reply_token
-    
+
+    # 目標カロリーの設定（例: 「目標 2000」「目標2000kcal」）
+    target_match = re.match(r'^目標\s*(\d+)\s*(?:kcal|キロカロリー)?$', user_text)
+    if target_match:
+        calories = int(target_match.group(1))
+        spreadsheet.set_target_calories(calories)
+        reply_msg = TextMessage(text=f"目標カロリーを {calories} kcal に設定しました🎯\n\n{build_daily_summary()}")
+        request = ReplyMessageRequest(reply_token=reply_token, messages=[reply_msg])
+        messaging_api.reply_message(request)
+        return
+
+    if user_text in ["今日の合計", "残り", "あと何カロリー", "カロリー"]:
+        reply_msg = TextMessage(text=build_daily_summary())
+        request = ReplyMessageRequest(reply_token=reply_token, messages=[reply_msg])
+        messaging_api.reply_message(request)
+        return
+
     if user_text == "体重入力":
         reply_msg = TextMessage(text="今日の体重を数字のみ（例: 65.5）で送信してください！⚖️")
         request = ReplyMessageRequest(reply_token=reply_token, messages=[reply_msg])
@@ -130,20 +150,22 @@ def handle_postback(event, api_client: ApiClient):
             memo = nutrition_data.get("memo", "特になし")
             
             spreadsheet.record_meal_data(meal_name, calories, protein, fat, carbs)
-            
+
+            # 記録後の「今日の累計」で判定・アドバイスさせる
+            today_totals = spreadsheet.get_today_meal_totals()
             target_totals = spreadsheet.get_target_nutrition()
-            today_totals = {"calories": calories, "protein": protein, "fat": fat, "carbs": carbs}
             advice = ai.generate_advice(today_totals, target_totals)
-            
+
             reply_text = (
                 f"🍽️ メニュー名: {meal_name}\n"
                 f"🔍 データソース: {data_source}\n\n"
-                f"【栄養成分】\n"
+                f"【この食事】\n"
                 f"⚡ カロリー: {calories} kcal\n"
                 f"💪 タンパク質 (P): {protein}g\n"
                 f"💧 脂質 (F): {fat}g\n"
                 f"🍚 炭水化物 (C): {carbs}g\n\n"
                 f"💡 解析メモ:\n{memo}\n\n"
+                f"{build_daily_summary()}\n\n"
                 f"🏋️‍♂️ AIアドバイス:\n{advice}"
             )
         except Exception as e:

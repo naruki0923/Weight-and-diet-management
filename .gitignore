@@ -2,3 +2,10 @@
 venv/
 __pycache__/
 credentials.json
+service_account.json
+.vercel
+
+# 個人メモ（GitHubには上げない）
+30日8kg増量の記録.md
+増量方法まとめ.md
+メモ/
