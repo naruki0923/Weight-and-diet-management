@@ -4,10 +4,6 @@ from dotenv import load_dotenv
 # .envファイルがあれば読み込む
 load_dotenv()
 
-# LINE API設定
-LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
-LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
-
 # Gemini API設定
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
