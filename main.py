@@ -16,16 +16,30 @@ def verify_token(token: str):
 
 @app.post("/meal")
 async def post_meal(request: Request, x_api_token: str = Header(None)):
-    """食事画像（リクエストボディに生バイナリ）を解析して記録する"""
+    """食事画像を解析して記録する。
+
+    送り方は2通り。どちらでも受け付ける。
+    - multipart/form-data: image=画像, note=補足（「大盛り」など。省略可）
+    - リクエストボディに画像の生バイナリ（補足なし）
+    """
     verify_token(x_api_token)
 
-    image_bytes = await request.body()
+    note = ""
+    if "multipart/form-data" in (request.headers.get("content-type") or ""):
+        form = await request.form()
+        upload = form.get("image")
+        image_bytes = await upload.read() if hasattr(upload, "read") else b""
+        note = str(form.get("note") or "")
+    else:
+        image_bytes = await request.body()
+
     if not image_bytes:
         raise HTTPException(status_code=400, detail="Image body is empty")
 
-    meal = summary.analyze_and_record(image_bytes)
+    meal = summary.analyze_and_record(image_bytes, note)
 
-    return {"message": summary.build_meal_result(meal), "meal": meal, **summary.get_daily_status()}
+    return {"message": summary.build_meal_result(meal), "meal": meal,
+            "note": note, **summary.get_daily_status()}
 
 @app.get("/today")
 async def get_today(x_api_token: str = Header(None)):
