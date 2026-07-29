@@ -1,7 +1,15 @@
 import json
 import gspread
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from config import GCP_SERVICE_ACCOUNT_JSON, SPREADSHEET_URL_OR_KEY
+
+# Vercelの実行環境はUTCなので、日付・時刻は必ずJSTで扱う。
+# そうしないと朝9時までに食べたぶんが前日の記録として集計されてしまう。
+JST = timezone(timedelta(hours=9))
+
+def now() -> datetime:
+    """日本時間の現在時刻"""
+    return datetime.now(JST)
 
 _spreadsheet = None
 
@@ -65,7 +73,7 @@ def set_setting(key: str, value, unit: str = ""):
 def record_meal_data(meal_name: str, calories: int, protein: int, fat: int, carbs: int):
     """食事記録シートにデータを追加する"""
     sheet = get_sheet_client().worksheet("食事記録シート")
-    now_str = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
+    now_str = now().strftime("%Y/%m/%d %H:%M:%S")
     
     row_data = [now_str, meal_name, calories, protein, fat, carbs]
     sheet.append_row(row_data)
@@ -73,7 +81,7 @@ def record_meal_data(meal_name: str, calories: int, protein: int, fat: int, carb
 def get_today_meal_totals():
     """食事記録シートから今日ぶんのカロリーとPFCを合計する"""
     sheet = get_sheet_client().worksheet("食事記録シート")
-    today_str = datetime.now().strftime("%Y/%m/%d")
+    today_str = now().strftime("%Y/%m/%d")
 
     totals = {"calories": 0.0, "protein": 0.0, "fat": 0.0, "carbs": 0.0, "count": 0}
 
@@ -117,7 +125,7 @@ def set_target_calories(calories: int):
 def record_weight(weight: float):
     """体重記録シートにデータを追加する"""
     sheet = get_sheet_client().worksheet("体重記録シート")
-    now_str = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
+    now_str = now().strftime("%Y/%m/%d %H:%M:%S")
     
     row_data = [now_str, weight]
     sheet.append_row(row_data)
@@ -162,7 +170,7 @@ def get_body_profile() -> dict:
 def record_training():
     """筋トレ記録シートに完了フラグを追加する"""
     sheet = get_sheet_client().worksheet("筋トレ記録シート")
-    date_str = datetime.now().strftime("%Y/%m/%d")
+    date_str = now().strftime("%Y/%m/%d")
     
     row_data = [date_str, "完了"]
     sheet.append_row(row_data)
@@ -170,7 +178,7 @@ def record_training():
 def get_today_training_status():
     """今日の筋トレ状況を取得（なければ行を作成）"""
     sheet = get_sheet_client().worksheet("筋トレ記録シート")
-    today_str = datetime.now().strftime("%Y/%m/%d")
+    today_str = now().strftime("%Y/%m/%d")
     records = sheet.get_all_records()
     
     today_row_index = None
@@ -204,7 +212,7 @@ def get_training_streak():
     records.sort(key=lambda x: str(x.get("日付", "")), reverse=True)
     
     streak = 0
-    check_date = datetime.now().date()
+    check_date = now().date()
     
     # 今日の状況を確認
     today_record = next((r for r in records if r.get("日付") == check_date.strftime("%Y/%m/%d")), None)
