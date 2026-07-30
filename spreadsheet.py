@@ -123,12 +123,22 @@ def set_target_calories(calories: int):
     sheet.append_row([TARGET_CALORIE_KEY, calories, "kcal"])
 
 def record_weight(weight: float):
-    """体重記録シートにデータを追加する"""
+    """体重記録シートに記録する。同じ日の行があれば上書きして1日1行に保つ。
+
+    オートメーションで日に何度も送られてくる前提なので、追記し続けると
+    同じ値の行が溜まってグラフが見にくくなる。その日の最新値だけ残す。
+    """
     sheet = get_sheet_client().worksheet("体重記録シート")
+    today = now().strftime("%Y/%m/%d")
     now_str = now().strftime("%Y/%m/%d %H:%M:%S")
-    
-    row_data = [now_str, weight]
-    sheet.append_row(row_data)
+
+    # このシートもヘッダーなしで [日時, 体重]。今日の行を後ろから探す
+    for i, row in enumerate(sheet.get_all_values(), start=1):
+        if row and str(row[0]).startswith(today):
+            sheet.update(values=[[now_str, weight]], range_name=f"A{i}:B{i}")
+            return
+
+    sheet.append_row([now_str, weight])
 
 def get_latest_weight() -> float:
     """体重記録シートの最新の体重を返す（1件もなければ0）"""
