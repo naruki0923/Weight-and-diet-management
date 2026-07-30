@@ -32,11 +32,22 @@ def get_daily_status() -> dict:
     totals = spreadsheet.get_today_meal_totals()
     target = spreadsheet.get_target_calories()
 
+    remaining = target - totals["calories"] if target > 0 else None
+
     return {
         "totals": totals,
         "target": target,
-        "remaining": target - totals["calories"] if target > 0 else None,
+        "remaining": remaining,
+        "headline": build_headline(remaining),
     }
+
+def build_headline(remaining) -> str:
+    """一番知りたい数字だけの1行。通知のタイトルにも使える短さにする"""
+    if remaining is None:
+        return "目標カロリー未設定"
+    if remaining >= 0:
+        return f"あと{remaining:.0f}kcal"
+    return f"{abs(remaining):.0f}kcalオーバー"
 
 def build_daily_summary() -> str:
     """今日の合計カロリーと、目標までの残りをまとめた文面を作る"""
@@ -44,7 +55,10 @@ def build_daily_summary() -> str:
     totals = status["totals"]
     target = status["target"]
 
+    # 通知はバナーで下が切れることがあるので、結論を最初に置く
     lines = [
+        status["headline"],
+        "",
         f"📊 今日の合計（{totals['count']}食）",
         f"⚡ カロリー: {totals['calories']:.0f} kcal",
         f"💪 P {totals['protein']:.0f}g / 💧 F {totals['fat']:.0f}g / 🍚 C {totals['carbs']:.0f}g",
