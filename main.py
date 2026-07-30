@@ -1,3 +1,4 @@
+import re
 from fastapi import FastAPI, Request, HTTPException, Header
 
 from config import API_TOKEN
@@ -54,12 +55,15 @@ async def post_weight(request: Request, x_api_token: str = Header(None)):
     verify_token(x_api_token)
 
     body = await request.json()
-    try:
-        weight = float(body["weight"])
-    except (KeyError, TypeError, ValueError):
-        raise HTTPException(status_code=400, detail="weight must be a number")
 
-    return summary.record_weight_and_update(weight)
+    # ヘルスケアのサンプルは「49.2 kg」のような単位つき文字列で届くことがあるので、
+    # 最初に現れる数値を拾う
+    raw = str(body.get("weight", ""))
+    match = re.search(r"\d+(?:\.\d+)?", raw)
+    if not match:
+        raise HTTPException(status_code=400, detail=f"weight must contain a number (got {raw!r})")
+
+    return summary.record_weight_and_update(float(match.group()))
 
 @app.get("/tdee")
 async def get_tdee(x_api_token: str = Header(None)):
