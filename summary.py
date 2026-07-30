@@ -17,6 +17,8 @@ def analyze_and_record(image_bytes: bytes, note: str = "") -> dict:
         "carbs": nutrition.get("carbs", 0),
         "data_source": nutrition.get("data_source", "画像からの概算"),
         "memo": nutrition.get("memo", "特になし"),
+        # 1品ずつの内訳。通知には出さないがレスポンスには含めておく
+        "items": nutrition.get("items", []),
     }
 
     spreadsheet.record_meal_data(

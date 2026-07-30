@@ -16,8 +16,23 @@ MEAL_SCHEMA = {
         "fat":         {"type": "number"},
         "carbs":       {"type": "number"},
         "memo":        {"type": "string"},
+        # 複数写っていたときの1品ずつの内訳。1品でも必ず1件入る
+        "items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name":     {"type": "string"},
+                    "calories": {"type": "number"},
+                    "protein":  {"type": "number"},
+                    "fat":      {"type": "number"},
+                    "carbs":    {"type": "number"},
+                },
+                "required": ["name", "calories", "protein", "fat", "carbs"],
+            },
+        },
     },
-    "required": ["meal_name", "data_source", "calories", "protein", "fat", "carbs", "memo"],
+    "required": ["meal_name", "data_source", "calories", "protein", "fat", "carbs", "memo", "items"],
 }
 
 def analyze_meal_image(image_bytes: bytes, note: str = "") -> dict:
@@ -42,16 +57,32 @@ def analyze_meal_image(image_bytes: bytes, note: str = "") -> dict:
     3. 【推測（上記に該当しない場合）】
     手作り料理や一般的な飲食店での食事の場合は、画像から判断できる食材、調理法、おおよその分量（グラム数）を推測し、一般的な食品成分表に基づいてPFCを概算してください。
 
+    # 複数の商品・料理が写っている場合
+    画像に食品が複数写っている場合は、まとめて1品として扱わないでください。
+    弁当とドリンク、定食の小鉢、コンビニで買った複数の商品などが該当します。
+    それぞれについて上記のルール1〜3を個別に適用し、1品ずつ算出してください。
+
+    - items に1品ずつの内訳を入れる
+    - calories / protein / fat / carbs には items の合計値を入れる
+    - meal_name は写っているものを「、」で並べる（例「カツカレー、サラダ、味噌汁」）
+    - 1品しか写っていない場合も items に必ずその1件を入れる
+
+    容器や食器だけが写っていて中身が無いもの、食品でないものは items に含めないでください。
+
     # 出力フォーマット
     システムが自動処理するため、必ず以下のJSON形式のみを出力してください。Markdownブロックは不要です。
     {
-      "meal_name": "[特定・または推測された料理名/商品名]",
+      "meal_name": "[特定・または推測された料理名/商品名。複数なら「、」で並べる]",
       "data_source": "[ラベル読み取り / 公式情報の推測 / 画像からの概算]",
       "calories": 850,
       "protein": 35,
       "fat": 25,
       "carbs": 110,
-      "memo": "[ラベルが読み取れなかった理由、または概算の根拠（例：ご飯普通盛り約200gとして計算など）を簡潔に記載]"
+      "memo": "[ラベルが読み取れなかった理由、または概算の根拠（例：ご飯普通盛り約200gとして計算など）を簡潔に記載]",
+      "items": [
+        {"name": "カツカレー", "calories": 700, "protein": 25, "fat": 22, "carbs": 95},
+        {"name": "味噌汁",     "calories": 150, "protein": 10, "fat": 3,  "carbs": 15}
+      ]
     }
     """
 
