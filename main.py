@@ -54,7 +54,11 @@ async def post_weight(request: Request, x_api_token: str = Header(None)):
     """体重を記録し、その体重でTDEEと目標カロリーを再計算する（ヘルスケア連携用。{"weight": 55.2} を送る）"""
     verify_token(x_api_token)
 
-    body = await request.json()
+    # ショートカット側の設定に詰まりにくいよう、JSONでもフォームでも受け付ける
+    if "application/json" in (request.headers.get("content-type") or ""):
+        body = await request.json()
+    else:
+        body = await request.form()
 
     # ヘルスケアのサンプルは「49.2 kg」のような単位つき文字列で届くことがあるので、
     # 最初に現れる数値を拾う
