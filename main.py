@@ -49,7 +49,10 @@ async def post_meal(request: Request, x_api_token: str = Header(None)):
 
     送り方は2通り。どちらでも受け付ける。
     - multipart/form-data: image=画像, note=補足（「大盛り」など。省略可）
-    - リクエストボディに画像の生バイナリ（補足なし）
+    - リクエストボディに画像の生バイナリ
+
+    補足は ?note=... のクエリでも渡せる。ショートカットのフォーム設定は
+    詰まりやすいので、本文はファイルのままURLに付けるだけで済ませられるように。
     """
     verify_token(x_api_token)
 
@@ -61,6 +64,8 @@ async def post_meal(request: Request, x_api_token: str = Header(None)):
         note = str(form.get("note") or "")
     else:
         image_bytes = await request.body()
+
+    note = note or str(request.query_params.get("note") or "")
 
     if not image_bytes:
         raise HTTPException(status_code=400, detail="画像が空です。imageフィールドに画像が入っているか確認してください")
