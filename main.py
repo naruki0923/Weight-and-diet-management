@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from config import API_TOKEN
+import ai
 import summary
 import tdee
 
@@ -62,7 +63,16 @@ async def post_meal(request: Request, x_api_token: str = Header(None)):
         image_bytes = await request.body()
 
     if not image_bytes:
-        raise HTTPException(status_code=400, detail="Image body is empty")
+        raise HTTPException(status_code=400, detail="画像が空です。imageフィールドに画像が入っているか確認してください")
+
+    # ショートカットのフォーム設定を間違えるとテキストが画像として届く。
+    # そのままGeminiに渡すと英語の 400 が返って原因が分かりにくいので先に弾く
+    if not ai.looks_like_image(image_bytes):
+        raise HTTPException(
+            status_code=400,
+            detail="imageフィールドが画像ではありません（テキストが送られています）。"
+                   "ショートカットのフォームで image の種類を「ファイル」、"
+                   "値を「サイズ変更済みの画像」にしてください")
 
     meal = summary.analyze_and_record(image_bytes, note)
 
