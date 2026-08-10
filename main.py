@@ -1,6 +1,7 @@
 import re
 from fastapi import FastAPI, Request, HTTPException, Header
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from config import API_TOKEN
 import summary
@@ -20,11 +21,19 @@ async def json_error(request: Request, exc: Exception):
                         content={"message": f"エラー: {type(exc).__name__}: {exc}",
                                  "error": f"{type(exc).__name__}: {exc}"})
 
-@app.exception_handler(HTTPException)
-async def json_http_error(request: Request, exc: HTTPException):
-    """HTTPExceptionも message つきで返し、通知にそのまま出せるようにする"""
+@app.exception_handler(StarletteHTTPException)
+async def json_http_error(request: Request, exc: StarletteHTTPException):
+    """HTTPExceptionも message つきで返し、通知にそのまま出せるようにする。
+
+    パス違いの404もここを通る。detail だけだとショートカットの通知が
+    空になって何も分からないため、必ず message を添える。
+    """
+    detail = exc.detail
+    if exc.status_code == 404:
+        detail = f"URLが違います（{request.url.path}）。/meal /today /weight のどれかを指定してください"
+
     return JSONResponse(status_code=exc.status_code,
-                        content={"message": f"エラー: {exc.detail}", "error": str(exc.detail)})
+                        content={"message": f"エラー: {detail}", "error": str(detail)})
 
 def verify_token(token: str):
     """X-API-Tokenヘッダーの合言葉を確認する"""
