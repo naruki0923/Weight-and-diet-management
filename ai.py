@@ -35,6 +35,15 @@ MEAL_SCHEMA = {
     "required": ["meal_name", "data_source", "calories", "protein", "fat", "carbs", "memo", "items"],
 }
 
+def looks_like_image(image_bytes: bytes) -> bool:
+    """先頭バイトが既知の画像形式かどうか。テキストが画像として届いた場合の判別用"""
+    head = image_bytes[:16]
+    return (head.startswith(b"\xff\xd8\xff")
+            or head.startswith(b"\x89PNG\r\n\x1a\n")
+            or head.startswith(b"GIF8")
+            or (head.startswith(b"RIFF") and head[8:12] == b"WEBP")
+            or head[4:8] == b"ftyp")
+
 def detect_image_mime(image_bytes: bytes) -> str:
     """先頭バイトから画像形式を判定する。
 
