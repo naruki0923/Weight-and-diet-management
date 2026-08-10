@@ -35,6 +35,29 @@ MEAL_SCHEMA = {
     "required": ["meal_name", "data_source", "calories", "protein", "fat", "carbs", "memo", "items"],
 }
 
+def detect_image_mime(image_bytes: bytes) -> str:
+    """先頭バイトから画像形式を判定する。
+
+    iPhoneの写真はHEICのことがあり、jpegと偽って渡すとGeminiが400を返すため、
+    実際の形式を見て渡す。判別できないときはjpegとして扱う。
+    """
+    head = image_bytes[:16]
+    if head.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if head.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if head.startswith(b"GIF8"):
+        return "image/gif"
+    if head.startswith(b"RIFF") and head[8:12] == b"WEBP":
+        return "image/webp"
+    if head[4:8] == b"ftyp":
+        brand = head[8:12]
+        if brand in (b"heic", b"heix", b"hevc", b"hevx", b"mif1", b"msf1"):
+            return "image/heic"
+        if brand in (b"avif", b"avis"):
+            return "image/avif"
+    return "image/jpeg"
+
 def analyze_meal_image(image_bytes: bytes, note: str = "") -> dict:
     """食事画像を解析し、カロリーとPFCをJSONで返す。
 
@@ -96,7 +119,7 @@ def analyze_meal_image(image_bytes: bytes, note: str = "") -> dict:
     補足: {note.strip()}
     """
 
-    image_parts = [{"mime_type": "image/jpeg", "data": image_bytes}]
+    image_parts = [{"mime_type": detect_image_mime(image_bytes), "data": image_bytes}]
 
     response = model.generate_content(
         [prompt, image_parts[0]],
