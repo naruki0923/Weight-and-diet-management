@@ -155,6 +155,50 @@ def record_weight_and_update(weight: float) -> dict:
     )
     return result
 
+def build_pushup_headline(status: dict) -> str:
+    """通知のタイトルにする1行。バナーで切れても分かるよう結論だけ"""
+    if status["done_today"]:
+        return f"今日のノルマ達成🎉 {status['sets']}/{status['target_sets']}セット"
+    return f"腕立て {status['sets']}/{status['target_sets']}セット"
+
+def build_pushup_summary(status: dict) -> str:
+    """腕立ての進捗を通知用の文面にする"""
+    remaining_sets = max(status["target_sets"] - status["sets"], 0)
+    week_remaining = max(status["week_target_days"] - status["week_done_days"], 0)
+
+    lines = [
+        build_pushup_headline(status),
+        "",
+        f"💪 今日 {status['reps']}/{status['target_reps']}回"
+        f"（{status['reps_per_set']}回 × {status['target_sets']}セット）",
+    ]
+
+    if remaining_sets > 0:
+        lines.append(f"➡️ あと{remaining_sets}セット（{remaining_sets * status['reps_per_set']}回）")
+
+    lines.append("")
+    lines.append(f"📅 今週 {status['week_done_days']}/{status['week_target_days']}日")
+
+    if week_remaining == 0:
+        lines.append("🏆 今週のノルマ達成！")
+    elif status["week_days_left"] < week_remaining:
+        # 残り日数より必要な日数が多い＝もう週5には届かない
+        lines.append(f"⚠️ 残り{status['week_days_left']}日なので今週の5日は届きません")
+    else:
+        lines.append(f"➡️ 残り{status['week_days_left']}日であと{week_remaining}日")
+
+    return "\n".join(lines)
+
+def add_pushup_set(sets: int = 1) -> dict:
+    """1セット記録して、通知用の文面つきで状況を返す"""
+    status = spreadsheet.add_pushup_set(sets)
+    return {"message": build_pushup_summary(status), **status}
+
+def get_pushup_status() -> dict:
+    """今の進捗を通知用の文面つきで返す"""
+    status = spreadsheet.get_pushup_status()
+    return {"message": build_pushup_summary(status), **status}
+
 def build_meal_result(meal: dict) -> str:
     """1食ぶんの解析結果＋今日の合計を、通知1枚に収まる文面にする"""
     return (
