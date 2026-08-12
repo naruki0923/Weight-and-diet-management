@@ -31,7 +31,8 @@ async def json_http_error(request: Request, exc: StarletteHTTPException):
     """
     detail = exc.detail
     if exc.status_code == 404:
-        detail = f"URLが違います（{request.url.path}）。/meal /today /weight のどれかを指定してください"
+        detail = (f"URLが違います（{request.url.path}）。"
+                  "/meal /today /weight /pushup のどれかを指定してください")
 
     return JSONResponse(status_code=exc.status_code,
                         content={"message": f"エラー: {detail}", "error": str(detail)})
@@ -110,6 +111,27 @@ async def post_weight(request: Request, x_api_token: str = Header(None)):
         raise HTTPException(status_code=400, detail=f"weight must contain a number (got {raw!r})")
 
     return summary.record_weight_and_update(float(match.group()))
+
+@app.post("/pushup")
+async def post_pushup(request: Request, x_api_token: str = Header(None)):
+    """腕立て伏せを1セット記録する。20回やったらショートカットからこれを叩く。
+
+    まとめて記録したいときだけ ?sets=2 のように渡す（省略なら1セット）。
+    """
+    verify_token(x_api_token)
+
+    raw = str(request.query_params.get("sets") or "1")
+    match = re.search(r"\d+", raw)
+    sets = int(match.group()) if match else 1
+
+    return summary.add_pushup_set(sets)
+
+@app.get("/pushup")
+async def get_pushup(x_api_token: str = Header(None)):
+    """今日のセット数と今週の達成日数を返す（記録は増やさない）"""
+    verify_token(x_api_token)
+
+    return summary.get_pushup_status()
 
 @app.get("/tdee")
 async def get_tdee(x_api_token: str = Header(None)):

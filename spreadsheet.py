@@ -1,7 +1,14 @@
 import json
 import gspread
 from datetime import datetime, timedelta, timezone
-from config import GCP_SERVICE_ACCOUNT_JSON, SPREADSHEET_URL_OR_KEY
+from config import (
+    GCP_SERVICE_ACCOUNT_JSON,
+    SPREADSHEET_URL_OR_KEY,
+    DAY_START_HOUR,
+    PUSHUP_REPS_PER_SET,
+    PUSHUP_SETS_PER_DAY,
+    PUSHUP_DAYS_PER_WEEK,
+)
 
 # Vercelの実行環境はUTCなので、日付・時刻は必ずJSTで扱う。
 # そうしないと朝9時までに食べたぶんが前日の記録として集計されてしまう。
@@ -10,6 +17,18 @@ JST = timezone(timedelta(hours=9))
 def now() -> datetime:
     """日本時間の現在時刻"""
     return datetime.now(JST)
+
+def logical_date(at: datetime = None):
+    """記録上の「今日」の日付。DAY_START_HOUR より前はまだ前日として扱う。
+
+    深夜1時に食べたぶんは前日の食事、というのが体感に合うため。
+    筋トレのセット数もこの日付でリセットされる。
+    """
+    return ((at or now()) - timedelta(hours=DAY_START_HOUR)).date()
+
+def today_str() -> str:
+    """シートに書く日付文字列（区切りは DAY_START_HOUR）"""
+    return logical_date().strftime("%Y/%m/%d")
 
 _spreadsheet = None
 
@@ -35,6 +54,21 @@ def _to_float(value) -> float:
         return float(str(value).replace(",", "").strip())
     except (TypeError, ValueError):
         return 0.0
+
+def _row_logical_date(value):
+    """シートの「日時」セルから記録上の日付を求める。読めなければ None"""
+    text = str(value).strip()
+    for fmt in ("%Y/%m/%d %H:%M:%S", "%Y/%m/%d %H:%M", "%Y/%m/%d"):
+        try:
+            parsed = datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+        # 日付だけの行は時刻0時とみなされるが、それは書いた時点で
+        # すでに区切り済みの日付なのでそのまま使う
+        if fmt == "%Y/%m/%d":
+            return parsed.date()
+        return logical_date(parsed)
+    return None
 
 def get_settings():
     """設定シートを A列=項目名 -> B列=設定値 の辞書として読む"""
@@ -81,15 +115,16 @@ def record_meal_data(meal_name: str, calories: int, protein: int, fat: int, carb
 def get_today_meal_totals():
     """食事記録シートから今日ぶんのカロリーとPFCを合計する"""
     sheet = get_sheet_client().worksheet("食事記録シート")
-    today_str = now().strftime("%Y/%m/%d")
+    today = logical_date()
 
     totals = {"calories": 0.0, "protein": 0.0, "fat": 0.0, "carbs": 0.0, "count": 0}
 
     # このシートはヘッダー行を持たず1行目からデータ。
     # record_meal_data が [日時, メニュー名, カロリー, P, F, C] の順で書き込む前提で、
-    # 日付が一致する行だけ拾う（ヘッダーを足しても日付と一致しないので無視される）
+    # 日付が一致する行だけ拾う（ヘッダーを足しても日付として読めないので無視される）。
+    # 前方一致ではなく日時を解釈するのは、深夜3時前の記録を前日ぶんに寄せるため。
     for row in sheet.get_all_values():
-        if len(row) < 6 or not str(row[0]).startswith(today_str):
+        if len(row) < 6 or _row_logical_date(row[0]) != today:
             continue
         totals["calories"] += _to_float(row[2])
         totals["protein"] += _to_float(row[3])
@@ -129,12 +164,12 @@ def record_weight(weight: float):
     同じ値の行が溜まってグラフが見にくくなる。その日の最新値だけ残す。
     """
     sheet = get_sheet_client().worksheet("体重記録シート")
-    today = now().strftime("%Y/%m/%d")
+    today = logical_date()
     now_str = now().strftime("%Y/%m/%d %H:%M:%S")
 
     # このシートもヘッダーなしで [日時, 体重]。今日の行を後ろから探す
     for i, row in enumerate(sheet.get_all_values(), start=1):
-        if row and str(row[0]).startswith(today):
+        if row and _row_logical_date(row[0]) == today:
             sheet.update(values=[[now_str, weight]], range_name=f"A{i}:B{i}")
             return
 
@@ -177,68 +212,85 @@ def get_body_profile() -> dict:
 
     return profile
 
-def record_training():
-    """筋トレ記録シートに完了フラグを追加する"""
-    sheet = get_sheet_client().worksheet("筋トレ記録シート")
-    date_str = now().strftime("%Y/%m/%d")
-    
-    row_data = [date_str, "完了"]
-    sheet.append_row(row_data)
+PUSHUP_SHEET_NAME = "腕立て記録シート"
+PUSHUP_HEADER = ["日付", "セット数", "回数", "更新時刻"]
 
-def get_today_training_status():
-    """今日の筋トレ状況を取得（なければ行を作成）"""
-    sheet = get_sheet_client().worksheet("筋トレ記録シート")
-    today_str = now().strftime("%Y/%m/%d")
-    records = sheet.get_all_records()
-    
-    today_row_index = None
-    today_data = None
-    for i, row in enumerate(records):
-        if str(row.get("日付", "")) == today_str:
-            today_row_index = i + 2 # ヘッダーと0始まりのズレを調整
-            today_data = row
-            break
-            
-    if today_row_index is None:
-        sheet.append_row([today_str, "", "", ""])
-        today_row_index = len(records) + 2
-        today_data = {"日付": today_str, "プランク": "", "腹筋": "", "腕立て伏せ": ""}
-        
-    return today_data, today_row_index
+def _pushup_sheet():
+    """腕立て記録シートを返す。なければヘッダーつきで作る"""
+    book = get_sheet_client()
+    try:
+        return book.worksheet(PUSHUP_SHEET_NAME)
+    except gspread.WorksheetNotFound:
+        sheet = book.add_worksheet(title=PUSHUP_SHEET_NAME, rows=400, cols=len(PUSHUP_HEADER))
+        sheet.append_row(PUSHUP_HEADER)
+        return sheet
 
-def update_training_task(task_name: str):
-    """指定された種目を「済」にする"""
-    sheet = get_sheet_client().worksheet("筋トレ記録シート")
-    today_data, row_index = get_today_training_status()
-    
-    col_map = {"プランク": 2, "腹筋": 3, "腕立て伏せ": 4}
-    if task_name in col_map:
-        sheet.update_cell(row_index, col_map[task_name], "済")
+def _read_pushup_rows(sheet):
+    """腕立て記録シートを {日付: (行番号, セット数)} で読む"""
+    rows = {}
+    for i, row in enumerate(sheet.get_all_values(), start=1):
+        if len(row) < 2:
+            continue
+        try:
+            date = datetime.strptime(str(row[0]).strip(), "%Y/%m/%d").date()
+        except ValueError:
+            continue  # ヘッダー行や空行
+        rows[date] = (i, int(_to_float(row[1])))
+    return rows
 
-def get_training_streak():
-    """何日連続で3種目すべて達成しているかを計算"""
-    sheet = get_sheet_client().worksheet("筋トレ記録シート")
-    records = sheet.get_all_records()
-    records.sort(key=lambda x: str(x.get("日付", "")), reverse=True)
-    
-    streak = 0
-    check_date = now().date()
-    
-    # 今日の状況を確認
-    today_record = next((r for r in records if r.get("日付") == check_date.strftime("%Y/%m/%d")), None)
-    if today_record and today_record.get("プランク") == "済" and today_record.get("腹筋") == "済" and today_record.get("腕立て伏せ") == "済":
-        streak += 1
-        check_date -= timedelta(days=1)
+def _week_start(date):
+    """その日が属する週（月曜はじまり）の月曜日"""
+    return date - timedelta(days=date.weekday())
+
+def _build_pushup_status(rows, today) -> dict:
+    """セット数の記録から、今日と今週の達成状況をまとめる"""
+    sets = rows.get(today, (None, 0))[1]
+    week_start = _week_start(today)
+
+    # 週5日の「達成した日」は、その日のノルマ（5セット）を満たした日だけ数える
+    done_days = sorted(
+        date for date, (_, count) in rows.items()
+        if week_start <= date <= today and count >= PUSHUP_SETS_PER_DAY
+    )
+
+    return {
+        "date": today.strftime("%Y/%m/%d"),
+        "sets": sets,
+        "target_sets": PUSHUP_SETS_PER_DAY,
+        "reps": sets * PUSHUP_REPS_PER_SET,
+        "target_reps": PUSHUP_SETS_PER_DAY * PUSHUP_REPS_PER_SET,
+        "reps_per_set": PUSHUP_REPS_PER_SET,
+        "done_today": sets >= PUSHUP_SETS_PER_DAY,
+        "week_start": week_start.strftime("%Y/%m/%d"),
+        "week_done_days": len(done_days),
+        "week_target_days": PUSHUP_DAYS_PER_WEEK,
+        # 今日を含めて週末（日曜）まであと何日あるか。ノルマが間に合うかの判断に使う
+        "week_days_left": 7 - today.weekday(),
+    }
+
+def get_pushup_status() -> dict:
+    """今日のセット数と今週の達成日数を返す（記録は増やさない）"""
+    sheet = _pushup_sheet()
+    return _build_pushup_status(_read_pushup_rows(sheet), logical_date())
+
+def add_pushup_set(sets: int = 1) -> dict:
+    """腕立てを1セット（指定があればその数だけ）記録して、最新の状況を返す"""
+    sheet = _pushup_sheet()
+    rows = _read_pushup_rows(sheet)
+    today = logical_date()
+    now_str = now().strftime("%Y/%m/%d %H:%M:%S")
+
+    row_index, current = rows.get(today, (None, 0))
+    updated = current + sets
+    values = [[today.strftime("%Y/%m/%d"), updated, updated * PUSHUP_REPS_PER_SET, now_str]]
+
+    if row_index is None:
+        sheet.append_row(values[0])
+        row_index = len(sheet.get_all_values())
     else:
-        check_date -= timedelta(days=1)
-        
-    # 昨日から遡って連続達成をカウント
-    for _ in range(365):
-        record = next((r for r in records if r.get("日付") == check_date.strftime("%Y/%m/%d")), None)
-        if record and record.get("プランク") == "済" and record.get("腹筋") == "済" and record.get("腕立て伏せ") == "済":
-            streak += 1
-            check_date -= timedelta(days=1)
-        else:
-            break
-            
-    return streak
+        sheet.update(values=values, range_name=f"A{row_index}:D{row_index}")
+
+    rows[today] = (row_index, updated)
+    status = _build_pushup_status(rows, today)
+    status["added_sets"] = sets
+    return status
