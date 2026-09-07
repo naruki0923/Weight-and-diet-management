@@ -23,7 +23,7 @@ LINE Bot は使わなくなったため削除した（コミット履歴には�
 
 ```
 GEMINI_API_KEY=...
-SPREADSHEET_URL_OR_KEY=1kWV2tOxksTpV_QeaePrDcwKLLIdpg8m-6n5d0kz5JU4
+SPREADSHEET_URL_OR_KEY=<スプレッドシートのURL、またはURL中のキー>
 GCP_SERVICE_ACCOUNT_JSON=credentials.json
 API_TOKEN=<自分で決めた長い文字列>
 ```
